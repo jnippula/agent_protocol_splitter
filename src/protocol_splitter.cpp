@@ -270,27 +270,36 @@ ssize_t DevSerial::read()
 	uint16_t packet_len, payload_len;
 	uint8_t type;
 
+	if (_buf_size == BUFFER_SIZE) {
+		_buf_size = 0;
+		printf("\033[0;31m[ protocol__splitter ]\tSerial link: receive buffer overflow - Flushing\033[0m\n");
+	}
+
 	ret = ::read(_uart_fd, _buffer + _buf_size, BUFFER_SIZE - _buf_size);
-	if (ret <= 0)
+	if (ret < 0) {
+		printf("\033[0;31m[ protocol__splitter ]\tSerial link: UART receive error: %d\033[0m\n", ret);
 		return ret;
+	} else if (ret == 0) {
+		return ret;
+	}
 
 	_buf_size += ret;
 
 	ret = 0;
 	// Search for a packet on buffer to send it
 	while (_buf_size - i >= Sp2HeaderSize) {
-		while (_buf_size - i >= Sp2HeaderSize
-		       && (memcmp(_buffer + i, Sp2HeaderMagic, 3 != 0))) {
+		while ( _buf_size - i >= Sp2HeaderSize &&
+				((_buffer[i] != Sp2HeaderMagic) || ((_buffer[i + 1] ^ _buffer[i + 2]) != _buffer[i + 3])) )
+		{
 			i++;
 		}
-		// We need at least the first 8 bytes to get packet header
+		// We need at least the first <Sp2HeaderSize> bytes to get packet header
 		if (i > _buf_size - Sp2HeaderSize) {
 			ret = -1;
 			break;
 		}
-
-		type = _buffer[i + 3];
-		payload_len = ((uint16_t)_buffer[i + 4] << 8) | _buffer[i + 5];
+		type = _buffer[i + 1] & 0x80;
+		payload_len = (uint16_t) (_buffer[i + 1] & 0x7f) << 8 | _buffer[i + 2];
 		packet_len = payload_len + Sp2HeaderSize;
 
 		// packet is bigger than what we've read, better luck next time
@@ -441,13 +450,10 @@ ssize_t DevSocket::write()
 		return payload_len;
 	}
 
-
-	memcpy(_buffer, Sp2HeaderMagic, 3);
-	_buffer[3] = (uint8_t) _type;
-	_buffer[4] = (uint8_t) ((payload_len >> 8) & 0xff);
-	_buffer[5] = (uint8_t) (payload_len & 0xff);
-	_buffer[6] = 0; // reserved
-	_buffer[7] = 0; // reserved
+	_buffer[0] = (uint8_t) Sp2HeaderMagic;
+	_buffer[1] = (uint8_t) (_type & 0x80) | ((payload_len >> 8) & 0x7f);
+	_buffer[2] = (uint8_t) (payload_len & 0xff);
+	_buffer[3] = _buffer[1] ^ _buffer[2]; // Checksum
 
 	packet_len = payload_len + Sp2HeaderSize;
 
