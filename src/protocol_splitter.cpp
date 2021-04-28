@@ -269,6 +269,7 @@ ssize_t DevSerial::read()
 	size_t i = 0;
 	uint16_t packet_len, payload_len;
 	uint8_t type;
+	Sp2Header_t *header;
 
 	if (_buf_size == BUFFER_SIZE) {
 		_buf_size = 0;
@@ -289,7 +290,9 @@ ssize_t DevSerial::read()
 	// Search for a packet on buffer to send it
 	while (_buf_size - i >= Sp2HeaderSize) {
 		while ( _buf_size - i >= Sp2HeaderSize &&
-				((_buffer[i] != Sp2HeaderMagic) || ((_buffer[i + 1] ^ _buffer[i + 2]) != _buffer[i + 3])) )
+			(((Sp2Header_t *) &_buffer[i])->magic != Sp2HeaderMagic
+			|| ((Sp2Header_t *) &_buffer[i])->checksum != (_buffer[i + 1] ^ _buffer[i + 2])
+			))
 		{
 			i++;
 		}
@@ -298,8 +301,8 @@ ssize_t DevSerial::read()
 			ret = -1;
 			break;
 		}
-		type = _buffer[i + 1] & 0x80;
-		payload_len = (uint16_t) (_buffer[i + 1] & 0x7f) << 8 | _buffer[i + 2];
+		header = (Sp2Header_t *)&_buffer[i];
+		payload_len = ((uint16_t)header->len_h << 8) | header->len_l;
 		packet_len = payload_len + Sp2HeaderSize;
 
 		// packet is bigger than what we've read, better luck next time
@@ -309,12 +312,12 @@ ssize_t DevSerial::read()
 		}
 
 		// Write to UDP port
-		if (type == MessageType::Mavlink) {
+		if (header->type == MessageType::Mavlink) {
 			objects->mavlink2->udp_write(_buffer+i+Sp2HeaderSize, payload_len);
-		} else if (type == MessageType::Rtps) {
+		} else if (header->type == MessageType::Rtps) {
 			objects->rtps->udp_write(_buffer+i+Sp2HeaderSize, payload_len);
 		} else {
-			printf("\033[0;31m[ protocol__splitter ]\tSerial link: Unknown message type %d received \033[0m\n", type);
+			printf("\033[0;31m[ protocol__splitter ]\tSerial link: Unknown message type %d received \033[0m\n", header->type);
 		}
 
 		// Jump over the handled packet
@@ -442,6 +445,7 @@ ssize_t DevSocket::write()
 {
 	int i = 0;
 	size_t packet_len;
+	Sp2Header_t *header;
 
 	// Read from UDP port
 	ssize_t payload_len = udp_read((void *)(_buffer + Sp2HeaderSize), BUFFER_SIZE - Sp2HeaderSize);
@@ -450,10 +454,12 @@ ssize_t DevSocket::write()
 		return payload_len;
 	}
 
-	_buffer[0] = (uint8_t) Sp2HeaderMagic;
-	_buffer[1] = (uint8_t) (_type & 0x80) | ((payload_len >> 8) & 0x7f);
-	_buffer[2] = (uint8_t) (payload_len & 0xff);
-	_buffer[3] = _buffer[1] ^ _buffer[2]; // Checksum
+	header = (Sp2Header_t *)&_buffer[0];
+	header->magic = Sp2HeaderMagic;
+	header->type = _type;
+	header->len_h = (uint8_t) (payload_len >> 8) & 0x7f;
+	header->len_l = (uint8_t) (payload_len & 0xff);
+	header->checksum = _buffer[1] ^ _buffer[2]; // Checksum
 
 	packet_len = payload_len + Sp2HeaderSize;
 

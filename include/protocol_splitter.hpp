@@ -61,19 +61,6 @@ struct StaticData {
 };
 
 /*
-struct Sp2Header {
-	char magic;                // 'S'
-	uint8_t type:1;            // 0=MAVLINK, 1=RTPS
-	uint16_t payload_len:15;   // Length
-	uint8_t checksum;          // XOR of two above bytes
-}
-
-     bits:   1 2 3 4 5 6 7 8
-header[0] - |     Magic     |
-header[1] - |T|   LenH      |
-header[2] - |     LenL      |
-header[3] - |   Checksum    |
-
 MessageType is in MSB of header[1]
             |
             v
@@ -82,8 +69,29 @@ MessageType is in MSB of header[1]
 */
 enum MessageType {
 	Mavlink = 0x00,
-	Rtps    = 0x80
+	Rtps    = 0x01
 };
+
+const char Sp2HeaderMagic = 'S';
+const int  Sp2HeaderSize  = 4;
+/*
+Header Structure:
+
+     bits:   1 2 3 4 5 6 7 8
+header[0] - |     Magic     |
+header[1] - |T|   LenH      |
+header[2] - |     LenL      |
+header[3] - |   Checksum    |
+*/
+typedef struct __attribute__((packed))
+{
+       char magic;                // 'S'
+       uint8_t len_h: 7,          // Length MSB
+               type: 1;          // 0=MAVLINK, 1=RTPS
+       uint8_t len_l;             // Length LSB
+       uint8_t checksum;          // XOR of two above bytes
+} Sp2Header_t;
+
 
 volatile sig_atomic_t running = true;
 
@@ -103,9 +111,6 @@ struct options {
 namespace
 {
 static StaticData *objects = nullptr;
-
-const char Sp2HeaderMagic = 'S';
-const int  Sp2HeaderSize  = 4;
 
 }
 
