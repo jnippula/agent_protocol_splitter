@@ -464,9 +464,9 @@ ssize_t DevSocket::write()
 		return payload_len;
 	}
 
-	_header.len_h = (payload_len >> 8) & 0x7f;
+	_header.len_h = ((payload_len >> 8) & 0x7f);
 	_header.len_l = (payload_len & 0xff);
-	_header.checksum = _buffer[1] ^ _buffer[2]; // Checksum
+	_header.checksum = (((_header.type << 7) & 0x80) | _header.len_h) ^ _header.len_l; // Checksum
 
 	memmove(_buffer, &_header, Sp2HeaderSize);
 
