@@ -285,8 +285,8 @@ ssize_t DevSerial::read()
 	// Search for a packet on buffer to send it
 	while (_buf_size - i >= Sp2HeaderSize) {
 		while (_buf_size - i >= Sp2HeaderSize &&
-		       (((Sp2Header_t *) &_buffer[i])->magic != Sp2HeaderMagic
-			|| ((Sp2Header_t *) &_buffer[i])->checksum != (_buffer[i + 1] ^ _buffer[i + 2])
+		       (((Sp2Header_t *) &_buffer[i])->fields.magic != Sp2HeaderMagic
+			|| ((Sp2Header_t *) &_buffer[i])->fields.checksum != (_buffer[i + 1] ^ _buffer[i + 2])
 		       )) {
 			i++;
 		}
@@ -298,7 +298,7 @@ ssize_t DevSerial::read()
 		}
 
 		header = (Sp2Header_t *)&_buffer[i];
-		payload_len = ((uint16_t)header->len_h << 8) | header->len_l;
+		payload_len = ((uint16_t)header->fields.len_h << 8) | header->fields.len_l;
 		packet_len = payload_len + Sp2HeaderSize;
 
 		// packet is bigger than what we've read, better luck next time
@@ -308,14 +308,14 @@ ssize_t DevSerial::read()
 		}
 
 		// Write to UDP port
-		if (header->type == MessageType::Mavlink) {
+		if (header->fields.type == MessageType::Mavlink) {
 			objects->mavlink2->udp_write(_buffer + i + Sp2HeaderSize, payload_len);
 
-		} else if (header->type == MessageType::Rtps) {
+		} else if (header->fields.type == MessageType::Rtps) {
 			objects->rtps->udp_write(_buffer + i + Sp2HeaderSize, payload_len);
 
 		} else {
-			printf("\033[0;31m[ protocol__splitter ]\tSerial link: Unknown message type %u received \033[0m\n", header->type);
+			printf("\033[0;31m[ protocol__splitter ]\tSerial link: Unknown message type %u received \033[0m\n", header->fields.type);
 		}
 
 		// Jump over the handled packet
@@ -349,11 +349,11 @@ DevSocket::DevSocket(const char *udp_ip, const uint16_t udp_port_recv,
 	}
 
 	// Init the header
-	_header.magic		= Sp2HeaderMagic;
-	_header.len_h		= 0;
-	_header.len_l		= 0;
-	_header.checksum	= 0;
-	_header.type		= type;
+	_header.fields.magic		= Sp2HeaderMagic;
+	_header.fields.len_h		= 0;
+	_header.fields.len_l		= 0;
+	_header.fields.checksum		= 0;
+	_header.fields.type		= type;
 
 	open_udp(type);
 }
@@ -458,23 +458,20 @@ ssize_t DevSocket::write()
 	size_t packet_len;
 
 	// Read from UDP port
-	ssize_t payload_len = udp_read((void *)(_buffer + Sp2HeaderSize), BUFFER_SIZE - Sp2HeaderSize);
+	ssize_t payload_len = udp_read((void *)_buffer, BUFFER_SIZE);
 
 	if (payload_len < 0) {
 		return payload_len;
 	}
 
-	_header.len_h = ((payload_len >> 8) & 0x7f);
-	_header.len_l = (payload_len & 0xff);
-	_header.checksum = (((_header.type << 7) & 0x80) | _header.len_h) ^ _header.len_l; // Checksum
-
-	memmove(_buffer, &_header, Sp2HeaderSize);
-
-	packet_len = payload_len + Sp2HeaderSize;
+	_header.fields.len_h = ((payload_len >> 8) & 0x7f);
+	_header.fields.len_l = (payload_len & 0xff);
+	_header.fields.checksum = _header.bytes[1] ^ _header.bytes[2]; // Checksum
 
 	// Write to UART port
 	std::unique_lock<std::mutex> guard(mtx);
-	packet_len = ::write(_uart_fd, _buffer, packet_len);
+	packet_len = ::write(_uart_fd, _header.bytes, Sp2HeaderSize);
+	packet_len += ::write(_uart_fd, _buffer, payload_len);
 	guard.unlock();
 
 	return packet_len;

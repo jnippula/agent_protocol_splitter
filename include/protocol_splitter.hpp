@@ -80,13 +80,16 @@ header[1] - |T|   LenH      |
 header[2] - |     LenL      |
 header[3] - |   Checksum    |
 */
-typedef struct __attribute__((packed))
+typedef union __attribute__((packed))
 {
-	char magic;                // 'S'
-	uint8_t len_h:	7,         // Length MSB
-		 type:	1;         // 0=MAVLINK, 1=RTPS
-	uint8_t len_l;             // Length LSB
-	uint8_t checksum;          // XOR of two above bytes
+	uint8_t bytes[4];
+	struct {
+		char magic;                // 'S'
+		uint8_t len_h:	7,         // Length MSB
+			type:	1;         // 0=MAVLINK, 1=RTPS
+		uint8_t len_l;             // Length LSB
+		uint8_t checksum;          // XOR of two above bytes
+	} fields;
 } Sp2Header_t;
 
 volatile sig_atomic_t running = true;
